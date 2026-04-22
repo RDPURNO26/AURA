@@ -13,7 +13,7 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
     QHBoxLayout, QLabel, QFrame, QSlider, QPushButton, QSizePolicy)
 from PyQt6.QtCore import Qt, QTimer, QThread, pyqtSignal, QPointF, QRectF
 from PyQt6.QtGui import (QPainter, QColor, QPen, QFont, QKeySequence,
-    QLinearGradient, QRadialGradient, QShortcut)
+    QLinearGradient, QRadialGradient, QShortcut, QIcon)
 
 # ── Palette ──────────────────────────────────────────────────
 BG         = "#0f0f14"
@@ -169,6 +169,14 @@ class AuraDashboard(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("AURA — Gesture Control")
+        
+        # Set Application Icon
+        icon_path = os.path.join(os.path.dirname(__file__), "app_icon.ico")
+        if getattr(sys, 'frozen', False):
+            icon_path = os.path.join(sys._MEIPASS, "app_icon.ico")
+        if os.path.exists(icon_path):
+            self.setWindowIcon(QIcon(icon_path))
+            
         self.setFixedSize(600, 720)
         self.setStyleSheet(f"background-color: {BG};")
 
@@ -487,8 +495,22 @@ class AuraDashboard(QMainWindow):
 
 
 def main():
+    import ctypes
+    # Ensure taskbar shows our custom icon by setting an explicit AppUserModelID
+    if sys.platform == 'win32':
+        myappid = 'rdpurno26.aura.gesturecontrol.4'
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
+
     mp.set_start_method("spawn", force=True)
     app = QApplication(sys.argv)
+    
+    # Set application-wide icon
+    icon_path = os.path.join(os.path.dirname(__file__), "app_icon.ico")
+    if getattr(sys, 'frozen', False):
+        icon_path = os.path.join(sys._MEIPASS, "app_icon.ico")
+    if os.path.exists(icon_path):
+        app.setWindowIcon(QIcon(icon_path))
+
     app.setStyle("Fusion")
     win = AuraDashboard()
     win.show()
