@@ -7,3 +7,9 @@ venv/
 ENV/
 env/
 python
+
+# Build artifacts
+build/
+dist/
+*.spec
+*.exe

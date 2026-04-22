@@ -1,8 +1,9 @@
 # gesture_fsm.py
 """
-AURA v3 – Two-finger control system.
+AURA v4 – Gesture State Machine.
 MOVE = index+middle (peace sign). Drop one finger = click. Cursor freezes on drop.
-CLUTCH = pinky only. LOCK = ring only. Voice typing = pinky+thumb.
+CLUTCH = pinky only. LOCK = index+pinky. Voice typing = thumb only.
+Volume = thumb+index (L-shape).
 """
 import logging
 _log = logging.getLogger("aura.fsm")
@@ -83,7 +84,6 @@ class GestureStateMachine:
 
         p = inputs.get("is_peace", False)
         f = inputs.get("is_fist", False)
-        ro = inputs.get("is_ring_only", False)
         io = inputs.get("is_index_only", False)
         mo = inputs.get("is_middle_only", False)
         t3 = inputs.get("is_three", False)
@@ -91,6 +91,8 @@ class GestureStateMachine:
         pk = inputs.get("is_pinky_only", False)
         db = inputs.get("is_dblclick", False)
         to = inputs.get("is_thumb_only", False)
+        ip = inputs.get("is_index_pinky", False)      # NEW: Lock gesture
+        ti = inputs.get("is_thumb_index", False)       # NEW: Volume gesture
         cy = float(inputs.get("hand_cy", 0.5))
 
         s = self.state
@@ -168,8 +170,17 @@ class GestureStateMachine:
                 return self._out()
             self._clutch = 0
 
-            # Ring only: volume control
-            if ro:
+            # Index + Pinky: LOCK (NEW — was ring only)
+            if ip:
+                self._lock += 1
+                self._scroll_enter = 0; self._zoom_enter = 0; self._vol = 0
+                if self._lock >= self.LOCK_FRAMES:
+                    self._go("LOCKED")
+                return self._out()
+            self._lock = 0
+
+            # Thumb + Index (L-shape): volume control (NEW — was ring only)
+            if ti:
                 self._vol += 1
                 self._scroll_enter = 0; self._zoom_enter = 0
                 if self._vol >= self.VOLUME_FRAMES:
@@ -273,8 +284,17 @@ class GestureStateMachine:
             else:
                 self._clutch_resume = 0
 
+        elif s == "LOCKED":
+            # Stay locked until peace sign is held for LOCK_EXIT frames
+            if p:
+                self._lock_exit += 1
+                if self._lock_exit >= self.LOCK_EXIT:
+                    self._go("MOVE")
+            else:
+                self._lock_exit = 0
+
         elif s == "VOLUME":
-            if not ro:
+            if not ti:
                 self._vol_exit += 1
                 if self._vol_exit >= self.VOLUME_EXIT:
                     self._go("MOVE")

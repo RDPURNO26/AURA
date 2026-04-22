@@ -1,15 +1,17 @@
-# AURA v3 — Control Guide
+# AURA v4 — Control Guide
 
 
 ## START
-    python main.py
+    Double-click Run_AURA.bat
+    OR: python aura_launcher.py
+    OR: python main.py (headless, no GUI)
     Show peace sign (index+middle) for 1 sec → cursor starts moving
 
 
 ## GESTURES
 
   MOVE CURSOR
-    ✌️ Index + Middle up (others down)
+    ✌️ Index + Middle up (others down, thumb tucked)
     Cursor follows your palm
     ONLY this pose moves the cursor — everything else freezes it
 
@@ -18,7 +20,7 @@
     Cursor freezes → click fires once → raise index back to resume
 
   RIGHT CLICK  (fires ONCE, won't spam)
-    Drop MIDDLE finger (index stays up)
+    Drop MIDDLE finger (index stays up, thumb tucked)
     Cursor freezes → right-click fires once → raise middle to resume
 
   DOUBLE CLICK  (fires ONCE, won't spam)
@@ -41,23 +43,30 @@
     Like a joystick — the further from center, the faster
 
   ZOOM  (position-based joystick)
-    Raise ALL fingers → 4 fingers (open hand)
+    Raise ALL fingers → 4+ fingers (open hand)
     Cursor stays FROZEN
     Same joystick as scroll:
       - Hand UP from center   = zoom IN
       - Hand DOWN from center = zoom OUT
       - Further = faster
 
+  VOLUME CONTROL — L-SHAPE 👍☝️  (NEW)
+    Extend THUMB + INDEX finger only (others down)
+    Hold for 0.13 sec to engage
+    Hand UP = volume UP, Hand DOWN = volume DOWN
+    Same joystick logic as scroll/zoom
+    Release gesture to stop
+
   CLUTCH (recenter) — PINKY ONLY 🤙
-    Hold PINKY finger only for 0.2 sec
+    Hold PINKY finger only (thumb tucked) for 0.2 sec
     Cursor freezes → move hand → peace sign to resume
 
-  LOCK (full pause) — RING ONLY 💍
-    Hold RING finger only for 0.2 sec
-    Everything stops → peace sign (5f) to unlock
+  LOCK (full pause) — INDEX + PINKY 🤟  (CHANGED)
+    Hold INDEX + PINKY fingers up (others down, thumb tucked) for 0.2 sec
+    Everything stops → peace sign (5 frames) to unlock
 
-  VOICE TYPING — PINKY + THUMB 🤙👍
-    Extend PINKY and THUMB together (other fingers down)
+  VOICE TYPING — THUMB ONLY 👍
+    Extend THUMB only (all fingers down)
     Hold for 0.2 sec → toggles Windows Voice Typing (Win+H)
     Do the same gesture again to turn it OFF
     Great for typing without keyboard!
@@ -65,16 +74,17 @@
 
 ## FINGER MAP (zero overlap)
 
-    0 fingers (fist)         = DRAG
-    1 index only             = RIGHT CLICK
-    1 middle only            = LEFT CLICK
-    1 ring only              = LOCK
-    1 pinky only             = CLUTCH
-    1 pinky + thumb          = VOICE TYPING TOGGLE
-    2 index+middle           = MOVE CURSOR (only pose that moves it)
-    2 index+middle + thumb   = DOUBLE CLICK
-    3 index+middle+ring      = SCROLL (cursor frozen, joystick)
-    4+ all fingers           = ZOOM (cursor frozen, joystick)
+    0 fingers (fist)             = DRAG
+    1 index only (no thumb)      = RIGHT CLICK
+    1 middle only                = LEFT CLICK
+    1 pinky only (no thumb)      = CLUTCH
+    thumb only (no fingers)      = VOICE TYPING TOGGLE
+    thumb + index                = VOLUME CONTROL (L-shape)
+    index + pinky (no thumb)     = LOCK
+    2 index+middle (no thumb)    = MOVE CURSOR (only pose that moves it)
+    2 index+middle + thumb       = DOUBLE CLICK
+    3 index+middle+ring          = SCROLL (cursor frozen, joystick)
+    4+ all fingers               = ZOOM (cursor frozen, joystick)
 
 
 ## CLICK RULES
@@ -85,16 +95,16 @@
     → No spamming, no accidental repeats
 
 
-## SCROLL/ZOOM SPEED
+## SCROLL/ZOOM/VOLUME SPEED
 
     Position-based (like a joystick):
     ┌────────────── top of zone ──────────────┐
-    │          FAST scroll up / zoom in        │
+    │          FAST scroll up / zoom in / +vol │
     │          MEDIUM                          │
     │          SLOW                            │
     │ ──────── CENTER (dead zone) ──────────── │
     │          SLOW                            │
     │          MEDIUM                          │
-    │          FAST scroll down / zoom out     │
+    │          FAST scroll down / zoom out / -vol │
     └────────────── bottom of zone ───────────┘
     Move hand higher/lower = faster. Center = stop.

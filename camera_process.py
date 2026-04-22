@@ -1,15 +1,8 @@
 # camera_process.py
 """
-AURA – Camera Capture Process
-Captures webcam frames, flips them, timestamps them,
-and puts (timestamp, frame) into frame_queue.
-Queue max size = 1. Always fresh. Never stale.
-
-Fixes from stress test review:
-- Timestamp taken AT capture (not after queue delay)
-- Camera auto-recovery if device temporarily claimed by another app
-- Pre-allocated flip buffer (no new numpy array every frame)
-- 5-frame warmup to skip black CAP_DSHOW startup frames
+AURA v4 – Camera Capture Process (Shared Memory).
+Writes frames directly into shared memory — zero-copy IPC.
+Signals readiness via a lightweight queue with just the timestamp.
 """
 
 import cv2
@@ -18,10 +11,23 @@ import time
 import numpy as np
 
 
-def camera_process(frame_queue: mp.Queue, stop_event: mp.Event):
+def camera_process(frame_queue: mp.Queue, stop_event: mp.Event, shm_name: str = None):
     print("[Camera] Started")
 
     flip_buffer = None  # Pre-allocated once — reused every frame
+    shm = None
+    shm_array = None
+
+    # Set up shared memory if available
+    if shm_name:
+        from multiprocessing import shared_memory
+        try:
+            shm = shared_memory.SharedMemory(name=shm_name)
+            shm_array = np.ndarray((480, 640, 3), dtype=np.uint8, buffer=shm.buf)
+            print("[Camera] Shared memory attached — zero-copy mode")
+        except Exception as e:
+            print(f"[Camera] Shared memory failed ({e}), falling back to queue mode")
+            shm = None
 
     def open_camera():
         c = cv2.VideoCapture(0, cv2.CAP_DSHOW)
@@ -38,6 +44,8 @@ def camera_process(frame_queue: mp.Queue, stop_event: mp.Event):
     cap = open_camera()
     if cap is None:
         print("[Camera] ERROR: Could not open webcam. Check connection.")
+        if shm:
+            shm.close()
         return
 
     consecutive_failures = 0
@@ -69,20 +77,35 @@ def camera_process(frame_queue: mp.Queue, stop_event: mp.Event):
 
         cv2.flip(frame, 1, flip_buffer)  # Flip into pre-allocated buffer
 
-        # Drop stale frame before inserting new one
-        if not frame_queue.empty():
+        if shm_array is not None:
+            # Zero-copy: write directly into shared memory
+            np.copyto(shm_array, flip_buffer)
+            # Signal with just the timestamp (tiny payload)
+            if not frame_queue.empty():
+                try:
+                    frame_queue.get_nowait()
+                except Exception:
+                    pass
             try:
-                frame_queue.get_nowait()
+                frame_queue.put_nowait(ts)
+            except Exception:
+                pass
+        else:
+            # Fallback: old queue mode
+            if not frame_queue.empty():
+                try:
+                    frame_queue.get_nowait()
+                except Exception:
+                    pass
+            try:
+                frame_queue.put_nowait((ts, flip_buffer.copy()))
             except Exception:
                 pass
 
-        try:
-            frame_queue.put_nowait((ts, flip_buffer.copy()))
-        except Exception:
-            pass
-
     if cap is not None:
         cap.release()
+    if shm:
+        shm.close()
     print("[Camera] Stopped")
 
 
@@ -100,8 +123,10 @@ if __name__ == "__main__":
     try:
         while True:
             if not test_queue.empty():
-                ts, frame = test_queue.get_nowait()
-                cv2.imshow("Camera Test — AURA", frame)
+                data = test_queue.get_nowait()
+                if isinstance(data, tuple):
+                    ts, frame = data
+                    cv2.imshow("Camera Test — AURA", frame)
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
     except KeyboardInterrupt:

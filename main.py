@@ -1,7 +1,7 @@
 # main.py
 """
-AURA – Main Entry Point
-Connects all three processes and launches the system.
+AURA v4 – Main Entry Point
+Connects all three processes via Shared Memory IPC and launches the system.
 
 Run this file to start AURA.
 Press Ctrl+C to shut down cleanly.
@@ -12,6 +12,7 @@ Place hand_landmarker.task next to mediapipe_process.py (bundle for offline demo
 
 import logging
 import multiprocessing as mp
+from multiprocessing import shared_memory
 import ctypes
 import time
 from pathlib import Path
@@ -28,9 +29,20 @@ from controller_process import controller_process
 
 _log = logging.getLogger("aura.main")
 
+# Shared memory constants
+FRAME_WIDTH = 640
+FRAME_HEIGHT = 480
+FRAME_CHANNELS = 3
+FRAME_SIZE = FRAME_WIDTH * FRAME_HEIGHT * FRAME_CHANNELS
+SHM_NAME = "aura_frame_buffer"
+
 
 def configure_logging():
-    root = Path(__file__).resolve().parent
+    import sys
+    if getattr(sys, 'frozen', False):
+        root = Path(sys.executable).parent
+    else:
+        root = Path(__file__).resolve().parent
     log_path = root / "aura.log"
     logging.basicConfig(
         level=logging.INFO,
@@ -71,24 +83,42 @@ def print_banner(screen_w, screen_h):
     print("=" * 55)
     print(f"   Screen: {screen_w}x{screen_h}")
     print("   Mode: Gesture Control — Right Hand")
+    print("   IPC: Shared Memory (zero-copy)")
     print("   Log: aura.log")
     print("   Press Ctrl+C to exit")
     print("=" * 55)
     print("")
 
 
-def respawn_worker(name, frame_queue, landmark_queue, stop_event):
+def create_shared_memory():
+    """Create or connect to shared memory block for frame transfer."""
+    # Clean up any leftover shared memory from a previous crash
+    try:
+        old_shm = shared_memory.SharedMemory(name=SHM_NAME)
+        old_shm.close()
+        old_shm.unlink()
+    except FileNotFoundError:
+        pass
+    except Exception:
+        pass
+
+    shm = shared_memory.SharedMemory(name=SHM_NAME, create=True, size=FRAME_SIZE)
+    _log.info("Shared memory created: %s (%d bytes)", SHM_NAME, FRAME_SIZE)
+    return shm
+
+
+def respawn_worker(name, frame_queue, landmark_queue, stop_event, shm_name):
     if name == "Camera":
         p = mp.Process(
             target=camera_process,
-            args=(frame_queue, stop_event),
+            args=(frame_queue, stop_event, shm_name),
             name="CameraProcess",
             daemon=True,
         )
     elif name == "MediaPipe":
         p = mp.Process(
             target=mediapipe_process,
-            args=(frame_queue, landmark_queue, stop_event),
+            args=(frame_queue, landmark_queue, stop_event, shm_name),
             name="MediaPipeProcess",
             daemon=True,
         )
@@ -105,7 +135,7 @@ def respawn_worker(name, frame_queue, landmark_queue, stop_event):
     return p
 
 
-def shutdown(processes, stop_event):
+def shutdown(processes, stop_event, shm=None):
     _log.info("Shutting down…")
     stop_event.set()
 
@@ -116,6 +146,15 @@ def shutdown(processes, stop_event):
             proc.terminate()
             proc.join(timeout=2)
 
+    # Clean up shared memory
+    if shm:
+        try:
+            shm.close()
+            shm.unlink()
+            _log.info("Shared memory cleaned up")
+        except Exception:
+            pass
+
     _log.info("All processes stopped.")
 
 
@@ -124,19 +163,22 @@ def main():
     screen_w, screen_h = get_screen_size()
     print_banner(screen_w, screen_h)
 
+    # Create shared memory for zero-copy frame transfer
+    shm = create_shared_memory()
+
     frame_queue = mp.Queue(maxsize=1)
     landmark_queue = mp.Queue(maxsize=1)
     stop_event = mp.Event()
 
     cam_proc = mp.Process(
         target=camera_process,
-        args=(frame_queue, stop_event),
+        args=(frame_queue, stop_event, SHM_NAME),
         name="CameraProcess",
         daemon=True,
     )
     mp_proc = mp.Process(
         target=mediapipe_process,
-        args=(frame_queue, landmark_queue, stop_event),
+        args=(frame_queue, landmark_queue, stop_event, SHM_NAME),
         name="MediaPipeProcess",
         daemon=True,
     )
@@ -166,7 +208,7 @@ def main():
 
     _log.info("All workers running. See MANUAL.md for gestures.")
     print("[Main] aura.log — full diagnostics")
-    print("[Main] Fist = LOCK (pause) | Pinky only = CLUTCH (recenter)")
+    print("[Main] Index+Pinky = LOCK | Pinky only = CLUTCH | L-shape = Volume")
     print("")
 
     try:
@@ -186,7 +228,8 @@ def main():
                     except Exception:
                         pass
                     try:
-                        processes[i] = (name, respawn_worker(name, frame_queue, landmark_queue, stop_event))
+                        processes[i] = (name, respawn_worker(
+                            name, frame_queue, landmark_queue, stop_event, SHM_NAME))
                     except Exception:
                         _log.exception("Failed to respawn %s", name)
                     time.sleep(0.5 if name == "Camera" else 0.25)
@@ -194,7 +237,7 @@ def main():
     except KeyboardInterrupt:
         pass
     finally:
-        shutdown(processes, stop_event)
+        shutdown(processes, stop_event, shm)
 
 
 if __name__ == "__main__":
