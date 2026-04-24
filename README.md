@@ -30,6 +30,17 @@
 
 ---
 
+## 📥 Download & Run (No Setup Required)
+
+**For a non-technical experience, use our standalone version:**
+
+1.  **Download:** Go to [**Releases**](https://github.com/RDPURNO26/AURA/releases) and download `AURA.exe`.
+2.  **Run:** Double-click `AURA.exe`.
+    *   *Note: If Windows shows a "SmartScreen" warning, click **"More info"** and then **"Run anyway."***
+3.  **Launch:** Click the big **"▶ LAUNCH AURA"** button in the dashboard and start using gestures!
+
+---
+
 ## ⚡ What is AURA?
 
 AURA transforms your webcam into a **full mouse + keyboard replacement** using real-time hand tracking. It uses **MediaPipe's 21-point hand landmark model** to detect your hand pose and translates it into precise cursor movements, clicks, scrolls, zooms, volume control, and voice typing — all with **zero additional hardware**.
