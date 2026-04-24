@@ -12,22 +12,15 @@ AURA drives your Windows cursor with your **right hand** via the webcam. The pre
 Run:
 
 ```text
-python main.py
+python aura_launcher.py
 ```
+(Or run the standalone `AURA.exe`)
 
 Logs: **`aura.log`** in the project folder. Press **Ctrl+C** to exit.
 
 ---
 
-## Auto-Calibration
 
-AURA now **auto-calibrates** your pinch threshold during the first ~60 frames of cursor movement. No manual calibration step needed:
-
-1. Point with **index finger only** — move your hand naturally for ~2 seconds.  
-2. The system samples your open-hand pinch distance and sets the threshold automatically.  
-3. Progress is logged: `Adaptive pinch threshold: X.XXXX`.  
-
----
 
 ## Cursor Tracking
 
@@ -39,22 +32,27 @@ The cursor is driven by the **palm centroid** (average of the four MCP joints), 
 
 ---
 
-## Gestures (finger count, no overlap)
+## Gestures (zero overlap)
 
-| Pose | Mode |
-|------|------|
-| **Index only** (other fingers down) | Move cursor; pinch = click / drag (see below). |
-| **Fist** (0 fingers) **6 frames** | **LOCKED** — pause; cursor stays put. **Open 2+ fingers** → **PASSIVE**, then engage move again. |
-| **Pinky only** (pinky up, others down) **6 frames** | **CLUTCH** — cursor frozen; recenter hand; **index up 4 frames** to resume with **relative** aim. |
-| **Index + middle** (ring + pinky down) | Scroll (cursor fixed). Stays stable — exits only after **4 frames** without the pose. |
-| **Index + middle + ring** (pinky down) | Zoom (cursor fixed; pinch open/close). Exits only after **4 frames** without the pose. |
+| Pose | Action |
+|------|--------|
+| **Peace Sign (Index + Middle up)** | Move cursor (ONLY pose that moves the cursor). |
+| **Drop Index** (Middle stays up) | Left Click (Cursor freezes, fires once). |
+| **Drop Middle** (Index stays up) | Right Click (Cursor freezes, fires once). |
+| **Peace + Thumb out** | Double Click (Fires once). |
+| **Fist** (all fingers down) | Drag (Hold 0.3s to start, Peace to release). |
+| **Index + Middle + Ring** | Scroll (Joystick-style based on hand position). |
+| **Open Hand** (4+ fingers) | Zoom (Joystick-style based on hand position). |
+| **Thumb + Index out** (L-shape)| Volume Control (Joystick-style based on hand position). |
+| **Pinky only** | Clutch (Recenter your hand). |
+| **Index + Pinky** | Lock (Pauses all tracking). |
+| **Thumb only** | Voice Typing (Toggles Windows dictation, Win+H). |
 
-### Clicking
+### Clicking & Movement
 
-- Pinch your index finger toward your thumb past **70%** of the calibrated threshold for **5 frames** to **arm** a click.  
-- The cursor **freezes** the instant arming begins — your aim is locked.  
-- **Open** past **108%** of the threshold to fire the click at the pinned location.  
-- Hold the pinch for **12 frames** instead to start a **drag**.  
+- The cursor is only moved by the **Peace Sign**.
+- Lowering a finger for a click instantly **freezes** the cursor so your aim remains perfectly locked.
+- Clicks fire **once** per gesture. You must return to the peace sign before clicking again.
 
 ---
 
@@ -78,7 +76,7 @@ If **Camera**, **MediaPipe**, or **Controller** exits unexpectedly, **main.py** 
 ## Technical
 
 - **Cursor anchor:** Palm centroid (average of landmarks 5, 9, 13, 17 — MCP joints).  
-- **Pinch detection:** 3D distance (X+Y+Z) between landmarks 4 and 8, normalized by palm scale.  
+- **Drop-finger clicking:** Uses cosine similarity between finger bone vectors to detect specific finger lowering while the rest of the hand remains stable.  
 - **Scroll velocity:** Landmark 9 (middle MCP) Y-axis movement — stable, not affected by finger flexion.  
 - **Queues:** blocking `get(timeout=0.033)` in MediaPipe and Controller (low busy-wait).  
 - **Smoothing:** One Euro `freq=60`, `fmin=1.5`, `beta=0.007`, `dcutoff=1.0`; anti-teleport **4%** of desktop width.  

@@ -123,9 +123,15 @@ The control system went through three major iterations to reach the current desi
 │                             │                                        │
 ├─────────────────────────────┼────────────────────────────────────────┤
 │                             │                                        │
-│ 💍 Ring only                 │ VOLUME CONTROL (joystick mode)         │
-│                             │ Hand up = volume up                    │
+│ 👍+☝️ L-Shape               │ VOLUME CONTROL (joystick mode)         │
+│ (thumb + index)             │ Hand up = volume up                    │
 │                             │ Hand down = volume down                │
+│                             │                                        │
+├─────────────────────────────┼────────────────────────────────────────┤
+│                             │                                        │
+│ 🤟 Index + Pinky             │ LOCK                                   │
+│                             │ Full system pause                      │
+│                             │ Peace sign to unlock                   │
 │                             │                                        │
 ├─────────────────────────────┼────────────────────────────────────────┤
 │                             │                                        │
@@ -143,8 +149,9 @@ The control system went through three major iterations to reach the current desi
   0 fingers (thumb out)         = VOICE TYPING
   1 finger  (index only)        = RIGHT CLICK trigger
   1 finger  (middle only)       = LEFT CLICK trigger
-  1 finger  (ring only)         = VOLUME CONTROL
+  2 fingers (thumb+index)       = VOLUME CONTROL
   1 finger  (pinky only)        = CLUTCH
+  2 fingers (index+pinky)       = LOCK
   2 fingers (index+middle)      = MOVE CURSOR  ← only moving pose
   2 fingers (index+middle+thumb)= DOUBLE CLICK
   3 fingers (index+middle+ring) = SCROLL
@@ -193,16 +200,17 @@ main.py (orchestrator)
 The FSM has 8 states with debounced transitions:
 
 ```
-States: IDLE, MOVE, CLICKING, DRAGGING, SCROLLING, ZOOMING, CLUTCH, VOLUME
+States: IDLE, MOVE, CLICKING, DRAGGING, SCROLLING, ZOOMING, CLUTCH, VOLUME, LOCKED
 
-IDLE ──(peace 3f)──► MOVE
-MOVE ──(fist 2f)───► CLICKING ──(hold 10f)──► DRAGGING
+IDLE ──(peace)─────► MOVE
+MOVE ──(fist)──────► DRAGGING
 MOVE ──(3 fingers)─► SCROLLING
 MOVE ──(4 fingers)─► ZOOMING
 MOVE ──(pinky)─────► CLUTCH
-MOVE ──(ring)──────► VOLUME
-CLICKING ──(open)──► MOVE (+ LEFT_CLICK action)
-CLICKING ──(index)─► MOVE (+ RIGHT_CLICK action)
+MOVE ──(L-shape)───► VOLUME
+MOVE ──(idx+pinky)─► LOCKED
+MOVE ──(drop idx)──► CLICKING (+ LEFT_CLICK)
+MOVE ──(drop mid)──► CLICKING (+ RIGHT_CLICK)
 DRAGGING ──(peace)─► MOVE (+ DRAG_END action)
 All states ──(peace)──► MOVE (exit gesture)
 ```
@@ -310,6 +318,7 @@ Every click type (left, right, double) fires exactly once per gesture, enforced 
 - ✅ Auto-restart crashed worker processes
 - ✅ Real-time preview window with state/action overlay
 - ✅ Works with any application (no focus requirement)
+- ✅ Standalone executable via PyInstaller (AURA.exe)
 
 ### Performance
 
@@ -416,7 +425,8 @@ AURA/
 ├── gesture_fsm.py           — Finite state machine for gesture recognition
 ├── hand_landmarker.task     — MediaPipe model file (offline, not downloaded)
 ├── requirements.txt         — Python dependencies
-├── aura.log            — Runtime log file
+├── aura_launcher.py         — Tkinter interactive launcher
+├── aura.log                 — Runtime log file
 ├── CONTROLS_GUIDE.txt       — User-facing gesture reference
 ├── MANUAL.md                — Technical manual
 ├── PROJECT_REPORT.md        — This file

@@ -1,444 +1,607 @@
+# gui.py
 """
-AURA Dashboard — PyQt6 Desktop Application.
-Premium dark-mode gesture control dashboard with live hand visualization,
-real-time stats, gesture history, system health, and tuning sliders.
+AURA Dashboard — Tkinter Desktop Application.
+Mirrors the visual design of the original bat launcher while keeping the
+premium extra features (live telemetry, tuning sliders, gesture history, and real-time hand tracking).
 """
-import sys, os, math, time, queue
+
+import tkinter as tk
+from tkinter import font as tkfont
 import multiprocessing as mp
 from multiprocessing import shared_memory
+import sys
+import os
+import math
+import time
+import queue
+import threading
 from collections import deque
-from pathlib import Path
 
-from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
-    QHBoxLayout, QLabel, QFrame, QSlider, QPushButton, QSizePolicy)
-from PyQt6.QtCore import Qt, QTimer, QThread, pyqtSignal, QPointF, QRectF
-from PyQt6.QtGui import (QPainter, QColor, QPen, QFont, QKeySequence,
-    QLinearGradient, QRadialGradient, QShortcut, QIcon)
-
-# ── Palette ──────────────────────────────────────────────────
-BG         = "#0f0f14"
-BG_CARD    = "#161620"
-BG_HEADER  = "#111118"
-ACCENT     = "#00d4ff"
-ACCENT_DIM = "#00698a"
-GREEN      = "#00e676"
-RED        = "#ff5252"
-ORANGE     = "#ffab40"
-YELLOW     = "#ffd600"
-PURPLE     = "#b388ff"
-MAGENTA    = "#ff4081"
-PINK       = "#f48fb1"
-TEXT       = "#e8e8f0"
-TEXT_DIM   = "#7a7a8e"
-TEXT_MUTED = "#44445a"
-BORDER     = "#25253a"
+# ── Color Palette ──────────────────────────────────────────────
+BG_DARK      = "#0d0d0d"
+BG_CARD      = "#1e1e2e"
+BG_CARD_HOVER = "#2a2a3e"
+ACCENT       = "#00d4ff"
+ACCENT_LIGHT = "#33ddff"
+ACCENT_GLOW  = "#00b8e6"
+GREEN        = "#00cec9"
+GREEN_DARK   = "#00b894"
+RED          = "#ff6b6b"
+ORANGE       = "#fdcb6e"
+PURPLE       = "#7c3aed"
+TEXT_PRIMARY = "#ffffff"
+TEXT_SECONDARY = "#a0a0b0"
+TEXT_DIM     = "#555566"
+TEXT_MUTED   = "#666677"
+BORDER       = "#2a2a3a"
 
 STATE_COLORS = {
-    "IDLE": "#555568", "MOVE": GREEN, "CLICKING": ACCENT,
-    "DRAGGING": ORANGE, "SCROLLING": PURPLE, "ZOOMING": MAGENTA,
-    "CLUTCH": YELLOW, "LOCKED": RED, "VOLUME": "#66bb6a",
+    "IDLE": TEXT_DIM, "MOVE": GREEN, "CLICKING": ACCENT,
+    "DRAGGING": ORANGE, "SCROLLING": "#b388ff", "ZOOMING": "#ff4081",
+    "CLUTCH": "#ffd600", "LOCKED": RED, "VOLUME": GREEN_DARK,
 }
 
-CONNECTIONS = [
-    (0,1),(1,2),(2,3),(3,4),(0,5),(5,6),(6,7),(7,8),
-    (0,9),(9,10),(10,11),(11,12),(0,13),(13,14),(14,15),(15,16),
-    (0,17),(17,18),(18,19),(19,20),(5,9),(9,13),(13,17),
-]
-
+# ── Shared Memory & IPC ───────────────────────────────────────
 SHM_NAME = "aura_frame_buffer"
 FRAME_SIZE = 640 * 480 * 3
 
 
-# ═══════════════════════════════════════════════════════════════
-#  Hand Skeleton Canvas with Glow
-# ═══════════════════════════════════════════════════════════════
-class HandCanvas(QWidget):
+# ── Hand Landmark Drawing ─────────────────────────────────────
+HAND_BASE = [
+    (0.50, 0.90),  # 0: Wrist
+    (0.45, 0.75),  # 1: Thumb CMC
+    (0.38, 0.60),  # 2: Thumb MCP
+    (0.32, 0.48),  # 3: Thumb IP
+    (0.27, 0.38),  # 4: Thumb TIP
+    (0.43, 0.48),  # 5: Index MCP
+    (0.42, 0.32),  # 6: Index PIP
+    (0.41, 0.20),  # 7: Index DIP
+    (0.40, 0.12),  # 8: Index TIP
+    (0.50, 0.45),  # 9: Middle MCP
+    (0.50, 0.28),  # 10: Middle PIP
+    (0.50, 0.16),  # 11: Middle DIP
+    (0.50, 0.08),  # 12: Middle TIP
+    (0.57, 0.47),  # 13: Ring MCP
+    (0.58, 0.32),  # 14: Ring PIP
+    (0.59, 0.20),  # 15: Ring DIP
+    (0.60, 0.12),  # 16: Ring TIP
+    (0.63, 0.52),  # 17: Pinky MCP
+    (0.65, 0.40),  # 18: Pinky PIP
+    (0.67, 0.30),  # 19: Pinky DIP
+    (0.68, 0.22),  # 20: Pinky TIP
+]
+
+CONNECTIONS = [
+    (0,1),(1,2),(2,3),(3,4),
+    (0,5),(5,6),(6,7),(7,8),
+    (0,9),(9,10),(10,11),(11,12),
+    (0,13),(13,14),(14,15),(15,16),
+    (0,17),(17,18),(18,19),(19,20),
+    (5,9),(9,13),(13,17),
+]
+
+GESTURES = {
+    "Peace Sign\n(Move Cursor)": {
+        "desc": "Index + Middle up\nCursor follows palm",
+        "color": GREEN,
+        "curled": [3, 4, 14, 15, 16, 18, 19, 20],
+        "thumb_in": True,
+    },
+    "Left Click": {
+        "desc": "Drop Index finger\n(Middle stays up)",
+        "color": ORANGE,
+        "curled": [3, 4, 6, 7, 8, 14, 15, 16, 18, 19, 20],
+        "thumb_in": True,
+    },
+    "Right Click": {
+        "desc": "Drop Middle finger\n(Index stays up)",
+        "color": ORANGE,
+        "curled": [3, 4, 10, 11, 12, 14, 15, 16, 18, 19, 20],
+        "thumb_in": True,
+    },
+    "Fist\n(Drag & Drop)": {
+        "desc": "All fingers down\nHold 0.3s to drag",
+        "color": RED,
+        "curled": [3, 4, 6, 7, 8, 10, 11, 12, 14, 15, 16, 18, 19, 20],
+        "thumb_in": True,
+    },
+    "Scroll\n(3 Fingers)": {
+        "desc": "Index + Middle + Ring\nJoystick-style scroll",
+        "color": ACCENT_LIGHT,
+        "curled": [3, 4, 18, 19, 20],
+        "thumb_in": True,
+    },
+    "Zoom\n(Open Hand)": {
+        "desc": "All fingers up\nJoystick-style zoom",
+        "color": ACCENT,
+        "curled": [],
+        "thumb_in": False,
+    },
+    "Volume\n(L-Shape)": {
+        "desc": "Thumb + Index out\nHand up/down = volume",
+        "color": GREEN_DARK,
+        "curled": [10, 11, 12, 14, 15, 16, 18, 19, 20],
+        "thumb_in": False,
+    },
+    "Lock\n(Index+Pinky)": {
+        "desc": "Index + Pinky up\nPauses all tracking",
+        "color": RED,
+        "curled": [3, 4, 10, 11, 12, 14, 15, 16],
+        "thumb_in": True,
+    },
+    "Clutch\n(Pinky Only)": {
+        "desc": "Pinky up only\nRecenter your hand",
+        "color": "#00ffff",
+        "curled": [3, 4, 6, 7, 8, 10, 11, 12, 14, 15, 16],
+        "thumb_in": True,
+    },
+    "Double Click\n(Peace+Thumb)": {
+        "desc": "Index + Middle + Thumb\nFires once",
+        "color": ORANGE,
+        "curled": [14, 15, 16, 18, 19, 20],
+        "thumb_in": False,
+    },
+}
+
+def get_hand_pose(gesture_data, hand_base):
+    pts = [list(p) for p in hand_base]
+    curled = set(gesture_data.get("curled", []))
+    for idx in curled:
+        if idx < len(pts):
+            mcp_map = {6: 5, 7: 5, 8: 5, 10: 9, 11: 9, 12: 9,
+                       14: 13, 15: 13, 16: 13, 18: 17, 19: 17, 20: 17,
+                       3: 1, 4: 1}
+            mcp = mcp_map.get(idx, 0)
+            wx, wy = pts[0]
+            mx, my = pts[mcp]
+            pts[idx][0] = mx + (wx - mx) * 0.3
+            pts[idx][1] = my + (wy - my) * 0.15 + 0.05
+    if gesture_data.get("thumb_in", False):
+        pts[3][0] = pts[2][0] + 0.04
+        pts[3][1] = pts[2][1] + 0.08
+        pts[4][0] = pts[3][0] + 0.03
+        pts[4][1] = pts[3][1] + 0.06
+    return pts
+
+def draw_hand_on_canvas(canvas, pts, color, cx, cy, scale, tag_prefix="hand", phase=0.0):
+    canvas.delete(tag_prefix)
+    screen_pts = []
+    for px, py in pts:
+        sx = cx + (px - 0.5) * scale
+        sy = cy + (py - 0.5) * scale
+        screen_pts.append((sx, sy))
+
+    pulse = 0.5 + 0.5 * math.sin(phase)
+    
+    # Glow logic if active (color is not TEXT_DIM)
+    is_active = color != TEXT_DIM
+    if is_active:
+        for a, b in CONNECTIONS:
+            x1, y1 = screen_pts[a]
+            x2, y2 = screen_pts[b]
+            canvas.create_line(x1, y1, x2, y2, fill=color, width=4, stipple="gray50", tags=tag_prefix)
+
+    # Core lines
+    for a, b in CONNECTIONS:
+        x1, y1 = screen_pts[a]
+        x2, y2 = screen_pts[b]
+        canvas.create_line(x1, y1, x2, y2, fill=color if is_active else TEXT_DIM, width=2, tags=tag_prefix)
+
+    # Joints
+    for i, (sx, sy) in enumerate(screen_pts):
+        r = 5 if i in (5, 9, 13, 17) else 3
+        jcolor = color if is_active and i in (4, 8, 12, 16, 20) else (TEXT_SECONDARY if not is_active else color)
+        canvas.create_oval(sx-r, sy-r, sx+r, sy+r, fill=jcolor, outline="", tags=tag_prefix)
+
+
+class AuraDashboard(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.landmarks = None
-        self.state = "IDLE"
-        self.phase = 0.0
-        self.setMinimumHeight(260)
-        t = QTimer(self); t.timeout.connect(self._tick); t.start(33)
 
-    def _tick(self):
-        self.phase = (self.phase + 0.07) % (2 * math.pi)
-        self.update()
+        self.title("AURA — Gesture Control Dashboard")
+        self.configure(bg=BG_DARK)
+        self.resizable(False, False)
 
-    def set_data(self, lm, state):
-        self.landmarks = lm; self.state = state
-
-    def paintEvent(self, e):
-        p = QPainter(self); p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        w, h = self.width(), self.height()
-
-        # Background gradient
-        grad = QLinearGradient(0, 0, 0, h)
-        grad.setColorAt(0, QColor(BG_CARD)); grad.setColorAt(1, QColor(BG))
-        p.fillRect(0, 0, w, h, grad)
-
-        # Grid
-        p.setPen(QPen(QColor(30, 30, 48), 1, Qt.PenStyle.DotLine))
-        for i in range(1, 6):
-            y = int(h * i / 6); p.drawLine(0, y, w, y)
-        for i in range(1, 5):
-            x = int(w * i / 5); p.drawLine(x, 0, x, h)
-
-        # Scanning line
-        sy = int(((time.time() * 0.8) % 1.0) * h)
-        scan_grad = QLinearGradient(0, sy - 15, 0, sy + 15)
-        scan_grad.setColorAt(0, QColor(0, 255, 100, 0))
-        scan_grad.setColorAt(0.5, QColor(0, 255, 100, 40))
-        scan_grad.setColorAt(1, QColor(0, 255, 100, 0))
-        p.fillRect(0, sy - 15, w, 30, scan_grad)
-
-        # Corner brackets
-        L, th = 20, 2; cb = QColor(ACCENT_DIM)
-        for cx, cy in [(8, 8), (w-8, 8), (8, h-8), (w-8, h-8)]:
-            dx = L if cx < w//2 else -L; dy = L if cy < h//2 else -L
-            p.setPen(QPen(cb, th))
-            p.drawLine(cx, cy, cx+dx, cy); p.drawLine(cx, cy, cx, cy+dy)
-
-        if self.landmarks is None:
-            p.setPen(QPen(QColor(TEXT_MUTED))); f = QFont("Segoe UI", 11)
-            p.setFont(f)
-            p.drawText(QRectF(0, 0, w, h), Qt.AlignmentFlag.AlignCenter,
-                       "Waiting for hand…")
-            p.end(); return
-
-        lm = self.landmarks; color = QColor(STATE_COLORS.get(self.state, ACCENT))
-        pulse = 0.5 + 0.5 * math.sin(self.phase)
-        m = 25
-        pts = [QPointF(m + lm[i][0]*(w-2*m), m + lm[i][1]*(h-2*m)) for i in range(21)]
-
-        # Glow layer
-        gc = QColor(color); gc.setAlpha(int(25 + 20*pulse))
-        p.setPen(QPen(gc, 7, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
-        for a, b in CONNECTIONS: p.drawLine(pts[a], pts[b])
-
-        # Mid layer
-        mc = QColor(color); mc.setAlpha(int(90 + 40*pulse))
-        p.setPen(QPen(mc, 3, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
-        for a, b in CONNECTIONS: p.drawLine(pts[a], pts[b])
-
-        # Core
-        cc = QColor(color); cc.setAlpha(230)
-        p.setPen(QPen(cc, 1.5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
-        for a, b in CONNECTIONS: p.drawLine(pts[a], pts[b])
-
-        # Joints
-        for i, pt in enumerate(pts):
-            p.setPen(Qt.PenStyle.NoPen)
-            if i in (5, 9, 13, 17):
-                gj = QColor(ACCENT); gj.setAlpha(int(35+25*pulse))
-                p.setBrush(gj); p.drawEllipse(pt, 9, 9)
-                p.setBrush(QColor(ACCENT)); p.drawEllipse(pt, 5, 5)
-                p.setBrush(QColor(255,255,255,180)); p.drawEllipse(pt, 2, 2)
-            elif i in (4, 8, 12, 16, 20):
-                gj = QColor(color); gj.setAlpha(int(45+25*pulse))
-                p.setBrush(gj); p.drawEllipse(pt, 7, 7)
-                p.setBrush(color); p.drawEllipse(pt, 4, 4)
-            else:
-                p.setBrush(QColor(TEXT_DIM)); p.drawEllipse(pt, 3, 3)
-        p.end()
-
-
-# ═══════════════════════════════════════════════════════════════
-#  Data Bridge Thread
-# ═══════════════════════════════════════════════════════════════
-class DataBridge(QThread):
-    frame = pyqtSignal(object, str, object, float, float)
-
-    def __init__(self, gui_q, stop_ev):
-        super().__init__(); self.q = gui_q; self.stop = stop_ev
-
-    def run(self):
-        while not self.stop.is_set():
-            try:
-                d = self.q.get(timeout=0.04)
-                lm, st, act, cf, ts = d
-                self.frame.emit(lm, st, act, cf, ts)
-            except Exception:
-                continue
-
-
-# ═══════════════════════════════════════════════════════════════
-#  Main Dashboard
-# ═══════════════════════════════════════════════════════════════
-class AuraDashboard(QMainWindow):
-    def __init__(self):
-        super().__init__()
-        self.setWindowTitle("AURA — Gesture Control")
-        
-        # Set Application Icon
+        # Set App Icon
         icon_path = os.path.join(os.path.dirname(__file__), "app_icon.ico")
         if getattr(sys, 'frozen', False):
             icon_path = os.path.join(sys._MEIPASS, "app_icon.ico")
         if os.path.exists(icon_path):
-            self.setWindowIcon(QIcon(icon_path))
-            
-        self.setFixedSize(600, 720)
-        self.setStyleSheet(f"background-color: {BG};")
+            self.iconbitmap(icon_path)
 
-        scr = QApplication.primaryScreen().geometry()
-        self.move((scr.width()-600)//2, (scr.height()-720)//2)
+        # Window size and centering
+        w, h = 1050, 820
+        sw = self.winfo_screenwidth()
+        sh = self.winfo_screenheight()
+        x = (sw - w) // 2
+        y = (sh - h) // 2
+        self.geometry(f"{w}x{h}+{x}+{y}")
 
-        self.procs = []; self.stop_ev = None; self.gui_q = None
-        self.shm = None; self.running = False; self.bridge = None
-        self.fps_times = deque(maxlen=30)
-        self.history = deque(maxlen=5)
-        self.prev_state = "IDLE"
+        self.overrideredirect(False)
 
+        # Fonts
+        self.title_font = tkfont.Font(family="Segoe UI", size=28, weight="bold")
+        self.subtitle_font = tkfont.Font(family="Segoe UI", size=11)
+        self.gesture_font = tkfont.Font(family="Segoe UI", size=10, weight="bold")
+        self.desc_font = tkfont.Font(family="Segoe UI", size=9)
+        self.button_font = tkfont.Font(family="Segoe UI", size=14, weight="bold")
+        self.small_font = tkfont.Font(family="Segoe UI", size=8)
+        self.stat_val_font = tkfont.Font(family="Consolas", size=14, weight="bold")
+
+        # Process management
+        self.procs = []
+        self.stop_ev = None
+        self.gui_q = None
+        self.shm = None
+        self.running = False
+        
         # Shared settings
         self.smooth_beta = mp.Value('d', 0.005)
         self.click_sens  = mp.Value('i', 3)
         self.zone_margin = mp.Value('d', 0.10)
+        
+        # Telemetry & History
+        self.fps_times = deque(maxlen=30)
+        self.history = deque(maxlen=6)
+        self.prev_state = "IDLE"
+        
+        # Canvas phase
+        self.anim_phase = 0.0
+        self.canvas_phase = 0.0
+        self.live_landmarks = None
+        self.live_state = "IDLE"
 
-        self._build()
-        QShortcut(QKeySequence("Escape"), self, self.close)
-        self._anim_timer = QTimer(self)
-        self._anim_timer.timeout.connect(self._anim_tick)
-        self._anim_timer.start(500)
-        self._anim_phase = 0
+        self.selected_gesture = None
+        self.gesture_keys = list(GESTURES.keys())
+        self.current_gesture_idx = 0
 
-    # ── Build UI ──────────────────────────────────────────────
-    def _build(self):
-        c = QWidget(); self.setCentralWidget(c)
-        root = QVBoxLayout(c); root.setContentsMargins(20, 12, 20, 16); root.setSpacing(10)
+        self._build_ui()
+        self._start_animation()
+        self._poll_queue()
 
-        # Header
-        hdr = QHBoxLayout()
-        title = QLabel("✦ AURA")
-        title.setStyleSheet(f"color:{ACCENT};font:bold 20px 'Segoe UI';")
-        hdr.addWidget(title)
-        sub = QLabel("Gesture Control Dashboard")
-        sub.setStyleSheet(f"color:{TEXT_DIM};font:10px 'Segoe UI';padding-top:6px;")
-        hdr.addWidget(sub); hdr.addStretch()
+    def _build_ui(self):
+        # ── Header ──
+        header = tk.Frame(self, bg=BG_DARK, height=90)
+        header.pack(fill="x", padx=30, pady=(20, 0))
+        header.pack_propagate(False)
 
-        # Status dots
-        self.dots = {}
-        for name in ("Camera", "MediaPipe", "Controller"):
-            lbl = QLabel(f"● {name}")
-            lbl.setStyleSheet(f"color:{TEXT_MUTED};font:9px 'Segoe UI';")
-            hdr.addWidget(lbl); self.dots[name] = lbl
-        root.addLayout(hdr)
+        tk.Label(header, text="✦ AURA", font=self.title_font,
+                 fg=ACCENT_LIGHT, bg=BG_DARK).pack(side="left")
+        tk.Label(header, text="AI-powered User-hand Recognition & Automation",
+                 font=self.subtitle_font, fg=TEXT_SECONDARY, bg=BG_DARK).pack(
+                     side="left", padx=(15, 0), pady=(12, 0))
 
-        # Separator
-        sep = QFrame(); sep.setFrameShape(QFrame.Shape.HLine)
-        sep.setStyleSheet(f"color:{BORDER};"); root.addWidget(sep)
+        # Status badge
+        self.status_frame = tk.Frame(header, bg=BG_DARK)
+        self.status_frame.pack(side="right", pady=(10, 0))
+        self.status_dot = tk.Label(self.status_frame, text="●", font=self.desc_font, fg=TEXT_DIM, bg=BG_DARK)
+        self.status_dot.pack(side="left")
+        self.status_label = tk.Label(self.status_frame, text="Ready", font=self.desc_font, fg=TEXT_DIM, bg=BG_DARK)
+        self.status_label.pack(side="left", padx=(4, 0))
 
-        # Canvas + Stats row
-        row = QHBoxLayout(); row.setSpacing(14)
-        self.canvas = HandCanvas(); row.addWidget(self.canvas, stretch=4)
+        # ── Divider ──
+        tk.Frame(self, bg=BORDER, height=1).pack(fill="x", padx=30, pady=(10, 15))
 
-        # Stats sidebar
-        stats = QVBoxLayout(); stats.setSpacing(6)
-        stats.addWidget(self._section_label("TELEMETRY"))
-        self.fps_lbl = self._stat_val("FPS", "—")
-        self.lat_lbl = self._stat_val("LATENCY", "—")
-        self.conf_lbl = self._stat_val("CONFIDENCE", "—")
-        for w in (self.fps_lbl[0], self.lat_lbl[0], self.conf_lbl[0]):
-            stats.addWidget(w)
-        stats.addStretch()
-        row.addLayout(stats, stretch=1)
-        root.addLayout(row)
+        # ── Main content area ──
+        content = tk.Frame(self, bg=BG_DARK)
+        content.pack(fill="both", expand=True, padx=30)
 
-        # State display
-        self.state_lbl = QLabel("IDLE")
-        self.state_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.state_lbl.setStyleSheet(
-            f"color:{STATE_COLORS['IDLE']};font:bold 28px 'Segoe UI';"
-            f"background:{BG_CARD};border:1px solid {BORDER};"
-            f"border-radius:8px;padding:8px;")
-        root.addWidget(self.state_lbl)
+        # ── Left Panel: Gestures & Settings ──
+        left_panel = tk.Frame(content, bg=BG_DARK, width=380)
+        left_panel.pack(side="left", fill="y")
+        left_panel.pack_propagate(False)
 
-        # Action subtitle
-        self.action_lbl = QLabel("Waiting to start…")
-        self.action_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.action_lbl.setStyleSheet(f"color:{TEXT_DIM};font:10px 'Segoe UI';")
-        root.addWidget(self.action_lbl)
+        # Gesture Cards
+        tk.Label(left_panel, text="GESTURE CONTROLS", font=self.gesture_font, fg=TEXT_SECONDARY, bg=BG_DARK).pack(anchor="w", pady=(0, 8))
 
-        # Gesture history
-        root.addWidget(self._section_label("GESTURE HISTORY"))
-        self.hist_container = QVBoxLayout(); self.hist_container.setSpacing(2)
-        hist_frame = QFrame()
-        hist_frame.setStyleSheet(f"background:{BG_CARD};border:1px solid {BORDER};border-radius:6px;")
-        hist_frame.setLayout(self.hist_container)
-        hist_frame.setFixedHeight(105)
-        # Placeholder
-        ph = QLabel("  No gestures yet"); ph.setStyleSheet(f"color:{TEXT_MUTED};font:9px 'Segoe UI';")
-        self.hist_container.addWidget(ph)
-        self.hist_container.addStretch()
-        root.addWidget(hist_frame)
+        self.card_frames = []
+        cards_container = tk.Frame(left_panel, bg=BG_DARK)
+        cards_container.pack(fill="x")
 
-        # Settings (collapsible)
-        self.settings_btn = QPushButton("▶  Settings")
-        self.settings_btn.setStyleSheet(
-            f"QPushButton{{color:{TEXT_DIM};background:transparent;border:none;"
-            f"font:bold 10px 'Segoe UI';text-align:left;padding:4px 0;}}"
-            f"QPushButton:hover{{color:{ACCENT};}}")
-        self.settings_btn.clicked.connect(self._toggle_settings)
-        root.addWidget(self.settings_btn)
+        for i, name in enumerate(self.gesture_keys):
+            gesture = GESTURES[name]
+            card = tk.Frame(cards_container, bg=BG_CARD, highlightbackground=BORDER, highlightthickness=1, cursor="hand2")
+            card.pack(fill="x", pady=1)  # reduced padding
+            inner = tk.Frame(card, bg=BG_CARD, padx=12, pady=2)  # reduced inner padding
+            inner.pack(fill="x")
+            dot = tk.Label(inner, text="●", fg=gesture["color"], bg=BG_CARD, font=self.desc_font)
+            dot.pack(side="left", padx=(0, 8))
+            name_label = tk.Label(inner, text=name.replace("\n", " — "), fg=TEXT_PRIMARY, bg=BG_CARD, font=self.gesture_font, anchor="w")
+            name_label.pack(side="left", fill="x", expand=True)
 
-        self.settings_frame = QFrame()
-        self.settings_frame.setStyleSheet(
-            f"background:{BG_CARD};border:1px solid {BORDER};border-radius:6px;")
-        sf_layout = QVBoxLayout(self.settings_frame); sf_layout.setContentsMargins(12,8,12,8)
-        self.settings_frame.setVisible(False)
+            for widget in [card, inner, dot, name_label]:
+                widget.bind("<Button-1>", lambda e, idx=i: self._select_gesture(idx))
+                widget.bind("<Enter>", lambda e, c=card, inn=inner, d=dot, nl=name_label: self._card_hover(c, inn, d, nl, True))
+                widget.bind("<Leave>", lambda e, c=card, inn=inner, d=dot, nl=name_label: self._card_hover(c, inn, d, nl, False))
 
-        self.sl_smooth = self._make_slider("Smoothing β", 0.001, 0.05, 0.005, sf_layout)
-        self.sl_click  = self._make_slider("Click Frames", 1, 8, 3, sf_layout, decimals=0)
-        self.sl_zone   = self._make_slider("Zone Margin %", 2, 25, 10, sf_layout, decimals=0)
-        root.addWidget(self.settings_frame)
+            self.card_frames.append((card, inner, dot, name_label))
 
-        # Start/Stop Button
-        self.start_btn = QPushButton("▶   START AURA")
-        self.start_btn.setFixedHeight(48)
-        self.start_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._style_start_btn(False)
-        self.start_btn.clicked.connect(self._toggle)
-        root.addWidget(self.start_btn)
+        # Settings Sliders (Scrollable Canvas)
+        tk.Frame(left_panel, bg=BG_DARK, height=15).pack()
+        tk.Label(left_panel, text="TUNING", font=self.gesture_font, fg=TEXT_SECONDARY, bg=BG_DARK).pack(anchor="w", pady=(0, 6))
+        
+        settings_outer = tk.Frame(left_panel, bg=BG_CARD, highlightbackground=BORDER, highlightthickness=1)
+        settings_outer.pack(fill="both", expand=True, pady=(0, 5))
+        
+        settings_canvas = tk.Canvas(settings_outer, bg=BG_CARD, highlightthickness=0)
+        settings_scrollbar = tk.Scrollbar(settings_outer, orient="vertical", command=settings_canvas.yview)
+        settings_frame = tk.Frame(settings_canvas, bg=BG_CARD, padx=12, pady=10)
 
-        # Footer
-        foot = QLabel("AURA v4  •  SharedMemory IPC  •  OneEuro Smoothing  •  PyQt6")
-        foot.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        foot.setStyleSheet(f"color:{TEXT_MUTED};font:8px 'Segoe UI';")
-        root.addWidget(foot)
+        settings_window = settings_canvas.create_window((0, 0), window=settings_frame, anchor="nw")
 
-    # ── Helpers ───────────────────────────────────────────────
-    def _section_label(self, text):
-        l = QLabel(text)
-        l.setStyleSheet(f"color:{TEXT_MUTED};font:bold 9px 'Segoe UI';letter-spacing:2px;")
-        return l
+        def _configure_canvas(event):
+            settings_canvas.configure(scrollregion=settings_canvas.bbox("all"))
+        settings_frame.bind("<Configure>", _configure_canvas)
 
-    def _stat_val(self, label, default):
-        w = QWidget(); ly = QVBoxLayout(w); ly.setContentsMargins(0,0,0,0); ly.setSpacing(0)
-        lbl = QLabel(label)
-        lbl.setStyleSheet(f"color:{TEXT_MUTED};font:8px 'Segoe UI';")
-        val = QLabel(default)
-        val.setStyleSheet(f"color:{ACCENT};font:bold 16px 'Consolas';")
-        ly.addWidget(lbl); ly.addWidget(val)
-        return w, val
+        def _configure_window(event):
+            settings_canvas.itemconfigure(settings_window, width=event.width)
+        settings_canvas.bind("<Configure>", _configure_window)
 
-    def _make_slider(self, label, mn, mx, default, layout, decimals=3):
-        row = QHBoxLayout(); row.setSpacing(8)
-        lbl = QLabel(label)
-        lbl.setFixedWidth(100)
-        lbl.setStyleSheet(f"color:{TEXT_DIM};font:9px 'Segoe UI';")
-        sl = QSlider(Qt.Orientation.Horizontal)
-        sl.setRange(0, 1000)
-        sl.setValue(int((default - mn) / (mx - mn) * 1000))
-        sl.setStyleSheet(
-            f"QSlider::groove:horizontal{{background:{BORDER};height:4px;border-radius:2px;}}"
-            f"QSlider::handle:horizontal{{background:{ACCENT};width:12px;height:12px;"
-            f"margin:-4px 0;border-radius:6px;}}"
-            f"QSlider::sub-page:horizontal{{background:{ACCENT_DIM};border-radius:2px;}}")
-        vl = QLabel(f"{default:.{decimals}f}" if decimals else str(int(default)))
-        vl.setFixedWidth(45); vl.setAlignment(Qt.AlignmentFlag.AlignRight)
-        vl.setStyleSheet(f"color:{ACCENT};font:9px 'Consolas';")
+        settings_canvas.configure(yscrollcommand=settings_scrollbar.set)
+        
+        settings_canvas.pack(side="left", fill="both", expand=True)
+        settings_scrollbar.pack(side="right", fill="y")
 
-        def on_change(v):
-            rv = mn + (v / 1000.0) * (mx - mn)
-            vl.setText(f"{rv:.{decimals}f}" if decimals else str(int(rv)))
-        sl.valueChanged.connect(on_change)
+        def _on_mousewheel(event):
+            settings_canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+            
+        settings_outer.bind("<Enter>", lambda e: settings_canvas.bind_all("<MouseWheel>", _on_mousewheel))
+        settings_outer.bind("<Leave>", lambda e: settings_canvas.unbind_all("<MouseWheel>"))
 
-        row.addWidget(lbl); row.addWidget(sl); row.addWidget(vl)
-        layout.addLayout(row)
-        return sl, mn, mx
+        self.sliders = {}
+        self._add_tk_slider(settings_frame, "Smoothing β", 0.001, 0.05, 0.005, self.smooth_beta)
+        self._add_tk_slider(settings_frame, "Click Frames", 1, 8, 3, self.click_sens)
+        self._add_tk_slider(settings_frame, "Zone Margin %", 2, 25, 10, self.zone_margin)
 
-    def _style_start_btn(self, is_running):
-        if is_running:
-            self.start_btn.setText("■   STOP AURA")
-            self.start_btn.setStyleSheet(
-                f"QPushButton{{background:{RED};color:white;font:bold 14px 'Segoe UI';"
-                f"border:none;border-radius:10px;}}"
-                f"QPushButton:hover{{background:#ff7777;}}")
-        else:
-            self.start_btn.setText("▶   START AURA")
-            self.start_btn.setStyleSheet(
-                f"QPushButton{{background:{ACCENT};color:white;font:bold 14px 'Segoe UI';"
-                f"border:none;border-radius:10px;}}"
-                f"QPushButton:hover{{background:#33dfff;}}")
+        # ── Right Panel: Canvas & Telemetry ──
+        right_panel = tk.Frame(content, bg=BG_DARK)
+        right_panel.pack(side="right", fill="both", expand=True, padx=(20, 0))
 
-    def _toggle_settings(self):
-        vis = not self.settings_frame.isVisible()
-        self.settings_frame.setVisible(vis)
-        self.settings_btn.setText("▼  Settings" if vis else "▶  Settings")
+        # Canvas Header
+        self.sim_title = tk.Label(right_panel, text="Select a gesture to preview", font=self.gesture_font, fg=TEXT_SECONDARY, bg=BG_DARK)
+        self.sim_title.pack(anchor="w", pady=(0, 8))
 
-    def _anim_tick(self):
-        self._anim_phase += 1
+        # Hand Canvas
+        self.hand_canvas = tk.Canvas(right_panel, bg=BG_CARD, highlightthickness=0, width=500, height=340)
+        self.hand_canvas.pack(fill="both", expand=True)
+        self._draw_idle_hand()
+
+        # Gesture / Action Desc
+        self.gesture_desc = tk.Label(right_panel, text="", font=self.desc_font, fg=TEXT_SECONDARY, bg=BG_DARK, justify="left", wraplength=450)
+        self.gesture_desc.pack(anchor="w", pady=(8, 0))
+        
+        # Telemetry & History container (Wrapped in dark card)
+        tele_hist_card = tk.Frame(right_panel, bg=BG_CARD, highlightbackground=BORDER, highlightthickness=1)
+        tele_hist_card.pack(fill="both", expand=True, pady=(15, 0))
+        
+        tele_hist = tk.Frame(tele_hist_card, bg=BG_CARD, padx=20, pady=15)
+        tele_hist.pack(fill="both", expand=True)
+
+        # Telemetry (Left side of bottom-right)
+        tele_frame = tk.Frame(tele_hist, bg=BG_CARD)
+        tele_frame.pack(side="left", fill="y", expand=True)
+        tk.Label(tele_frame, text="TELEMETRY", font=self.gesture_font, fg=TEXT_SECONDARY, bg=BG_CARD).pack(anchor="w")
+        
+        stats_row = tk.Frame(tele_frame, bg=BG_CARD)
+        stats_row.pack(anchor="w", pady=(15,0))
+        
+        self.lbl_fps, self.bar_fps = self._create_stat(stats_row, "FPS", "—")
+        self.lbl_lat, self.bar_lat = self._create_stat(stats_row, "LATENCY", "—")
+        self.lbl_conf, self.bar_conf = self._create_stat(stats_row, "CONFIDENCE", "—")
+
+        # History (Right side of bottom-right)
+        hist_frame = tk.Frame(tele_hist, bg=BG_CARD, width=280)
+        hist_frame.pack(side="right", fill="y")
+        hist_frame.pack_propagate(False)
+        tk.Label(hist_frame, text="GESTURE HISTORY", font=self.gesture_font, fg=TEXT_SECONDARY, bg=BG_CARD).pack(anchor="w")
+        
+        self.hist_canvas = tk.Canvas(hist_frame, bg=BG_CARD, highlightthickness=0)
+        self.hist_canvas.pack(fill="both", expand=True, pady=(10,0))
+
+        # ── Bottom bar ──
+        bottom = tk.Frame(self, bg=BG_DARK)
+        bottom.pack(fill="x", padx=30, pady=(15, 20))
+
+        # Launch button
+        self.launch_btn = tk.Canvas(bottom, width=260, height=50, bg=BG_DARK, highlightthickness=0, cursor="hand2")
+        self.launch_btn.pack(side="right")
+        self._draw_button(self.launch_btn, "▶  LAUNCH AURA", PURPLE, 260, 50)
+        self.launch_btn.bind("<Button-1>", self._toggle_launch)
+        self.launch_btn.bind("<Enter>", lambda e: self._hover_launch(True))
+        self.launch_btn.bind("<Leave>", lambda e: self._hover_launch(False))
+
+        # Version info
+        tk.Label(bottom, text="AURA v4.0  •  Shared Memory IPC  •  Tkinter + Live Telemetry",
+                 font=self.small_font, fg=TEXT_DIM, bg=BG_DARK).pack(side="left")
+
+        # Select first gesture by default
+        self._select_gesture(0)
+
+    def _create_stat(self, parent, label, default):
+        f = tk.Frame(parent, bg=BG_CARD)
+        f.pack(side="left", padx=(0, 30))
+        tk.Label(f, text=label, font=self.small_font, fg=TEXT_DIM, bg=BG_CARD).pack(anchor="w")
+        val_lbl = tk.Label(f, text=default, font=tkfont.Font(family="Consolas", size=18, weight="bold"), fg=ACCENT, bg=BG_CARD)
+        val_lbl.pack(anchor="w", pady=(2, 0))
+        
+        bar_canvas = tk.Canvas(f, bg=BG_CARD, height=4, width=60, highlightthickness=0)
+        bar_canvas.pack(anchor="w", pady=(2, 0))
+        bar_canvas.create_rectangle(0, 0, 60, 4, fill=BORDER, outline="")
+        bar = bar_canvas.create_rectangle(0, 0, 0, 4, fill=ACCENT, outline="")
+        
+        return val_lbl, (bar_canvas, bar)
+
+    def _add_tk_slider(self, parent, label, mn, mx, default, mp_value):
+        row = tk.Frame(parent, bg=BG_CARD)
+        row.pack(fill="x", pady=8)
+        
+        tk.Label(row, text=label, font=self.desc_font, fg=TEXT_PRIMARY, bg=BG_CARD, width=12, anchor="w").pack(side="left")
+        
+        val_lbl = tk.Label(row, text=f"{default:.3f}", font=("Consolas", 10, "bold"), fg=ACCENT, bg=BG_CARD, width=6, anchor="e")
+        val_lbl.pack(side="right", padx=(5, 0))
+
+        sv = tk.DoubleVar(value=default)
+        sl = tk.Scale(row, from_=mn, to=mx, resolution=(mx-mn)/100.0, orient="horizontal", 
+                      variable=sv, showvalue=0, bg=BG_CARD, fg=ACCENT, highlightthickness=0, troughcolor=BORDER, sliderlength=15, width=12)
+        sl.pack(side="left", fill="x", expand=True, padx=5)
+        
+        def on_change(*args):
+            v = sv.get()
+            val_lbl.config(text=f"{v:.3f}")
+            if hasattr(mp_value, 'value'):
+                mp_value.value = v
+        sv.trace_add("write", on_change)
+        self.sliders[label] = sv
+
+    def _draw_button(self, canvas, text, color, w, h):
+        canvas.delete("all")
+        r = 12
+        canvas.create_arc(0, 0, r*2, r*2, start=90, extent=90, fill=color, outline="")
+        canvas.create_arc(w-r*2, 0, w, r*2, start=0, extent=90, fill=color, outline="")
+        canvas.create_arc(0, h-r*2, r*2, h, start=180, extent=90, fill=color, outline="")
+        canvas.create_arc(w-r*2, h-r*2, w, h, start=270, extent=90, fill=color, outline="")
+        canvas.create_rectangle(r, 0, w-r, h, fill=color, outline="")
+        canvas.create_rectangle(0, r, w, h-r, fill=color, outline="")
+        canvas.create_text(w//2, h//2, text=text, fill="white", font=self.button_font)
+
+    def _hover_launch(self, entering):
+        color = "#8b5cf6" if entering else PURPLE # Lighter purple for glow
         if self.running:
-            for n, lbl in self.dots.items():
-                lbl.setStyleSheet(f"color:{GREEN};font:9px 'Segoe UI';")
+            color = "#ff8888" if entering else RED
+        text = "■  STOP AURA" if self.running else "▶  LAUNCH AURA"
+        self._draw_button(self.launch_btn, text, color, 260, 50)
 
-    # ── Data from bridge ─────────────────────────────────────
-    def _on_frame(self, lm, state, action, conf, ts):
+    def _card_hover(self, card, inner, dot, label, entering):
+        bg = BG_CARD_HOVER if entering else BG_CARD
+        for w in [card, inner, dot, label]:
+            w.configure(bg=bg)
+
+    def _select_gesture(self, idx):
+        if self.running: return # Disable manual selection while running
+        self.current_gesture_idx = idx
+        name = self.gesture_keys[idx]
+        gesture = GESTURES[name]
+
+        for i, (card, inner, dot, label) in enumerate(self.card_frames):
+            if i == idx:
+                card.configure(highlightbackground=gesture["color"], highlightthickness=2)
+            else:
+                card.configure(highlightbackground=BORDER, highlightthickness=1)
+
+        self.sim_title.configure(text=name.replace("\n", " — "), fg=gesture["color"])
+        self.gesture_desc.configure(text=gesture["desc"])
+
+        pts = get_hand_pose(gesture, HAND_BASE)
+        cw = 500; ch = 340
+        draw_hand_on_canvas(self.hand_canvas, pts, gesture["color"], cw//2, ch//2, min(cw, ch)*0.8)
+
+    def _draw_idle_hand(self):
+        pts = HAND_BASE
+        cw = 500; ch = 340
+        draw_hand_on_canvas(self.hand_canvas, pts, TEXT_DIM, cw//2, ch//2, min(cw, ch)*0.8)
+
+    def _start_animation(self):
+        self.anim_phase += 0.05
+        self.canvas_phase += 0.15
+        
+        # Breathing status dot
+        brightness = int(80 + 40 * math.sin(self.anim_phase))
+        color = f"#{brightness:02x}{brightness:02x}{brightness + 20:02x}"
+        if not self.running:
+            self.status_dot.configure(fg=color)
+            
+        # Live canvas update
+        if self.running and self.live_landmarks is not None:
+            cw = 500; ch = 340
+            scolor = STATE_COLORS.get(self.live_state, ACCENT)
+            # Live landmarks are normalized
+            pts = [(float(self.live_landmarks[i,0]), float(self.live_landmarks[i,1])) for i in range(21)]
+            draw_hand_on_canvas(self.hand_canvas, pts, scolor, cw//2, ch//2, min(cw, ch)*0.8, phase=self.canvas_phase)
+            
+        # History animation
+        if hasattr(self, 'hist_canvas'):
+            self.hist_canvas.delete("all")
+            if not self.history:
+                self.hist_canvas.create_text(10, 20, text="Waiting for gestures...", fill=TEXT_MUTED, font=self.desc_font, anchor="w")
+            else:
+                now = time.time()
+                for i, entry in enumerate(self.history):
+                    target_y = i * 28 + 15
+                    # Smooth approach for animation
+                    entry["y"] += (target_y - entry["y"]) * 0.2
+                    
+                    y = entry["y"]
+                    if y > 140: continue # off screen
+                    
+                    # "Xs ago"
+                    ago = int(now - entry["ts"])
+                    ago_str = f"{ago}s ago" if ago > 0 else "Just now"
+                    
+                    # Colored dot
+                    self.hist_canvas.create_oval(5, y-4, 13, y+4, fill=entry["color"], outline="")
+                    # Gesture name
+                    self.hist_canvas.create_text(22, y, text=entry["state"], fill=TEXT_PRIMARY, font=self.desc_font, anchor="w")
+                    # Time
+                    self.hist_canvas.create_text(260, y, text=ago_str, fill=TEXT_MUTED, font=self.small_font, anchor="e")
+
+        self.after(33, self._start_animation)
+
+    def _poll_queue(self):
+        if self.running and self.gui_q:
+            try:
+                while True:
+                    lm, state, action, conf, ts = self.gui_q.get_nowait()
+                    self._process_frame_data(lm, state, action, conf, ts)
+            except queue.Empty:
+                pass
+        self.after(33, self._poll_queue)
+
+    def _process_frame_data(self, lm, state, action, conf, ts):
         now = time.time()
         self.fps_times.append(now)
         if len(self.fps_times) > 1:
             dt = self.fps_times[-1] - self.fps_times[0]
             fps = (len(self.fps_times)-1) / max(dt, 0.001)
-            self.fps_lbl[1].setText(f"{fps:.0f}")
+            self.lbl_fps.configure(text=f"{fps:.0f}")
+            fw = min(60, max(0, (fps / 60.0) * 60))
+            self.bar_fps[0].coords(self.bar_fps[1], 0, 0, fw, 4)
+            
         lat = (now - ts) * 1000 if ts else 0
-        self.lat_lbl[1].setText(f"{lat:.0f}ms")
-        self.conf_lbl[1].setText(f"{conf*100:.0f}%")
+        self.lbl_lat.configure(text=f"{lat:.0f}ms")
+        lw = min(60, max(0, ((100 - min(lat, 100)) / 100.0) * 60)) 
+        self.bar_lat[0].coords(self.bar_lat[1], 0, 0, lw, 4)
+        
+        self.lbl_conf.configure(text=f"{conf*100:.0f}%")
+        cw = min(60, max(0, conf * 60))
+        self.bar_conf[0].coords(self.bar_conf[1], 0, 0, cw, 4)
 
-        # Convert landmarks for canvas
-        if lm is not None:
-            pts = [(float(lm[i, 0]), float(lm[i, 1])) for i in range(21)]
-            self.canvas.set_data(pts, state)
-        else:
-            self.canvas.set_data(None, state)
+        self.live_landmarks = lm
+        self.live_state = state
 
-        # State label
         sc = STATE_COLORS.get(state, TEXT_DIM)
-        self.state_lbl.setText(state)
-        self.state_lbl.setStyleSheet(
-            f"color:{sc};font:bold 28px 'Segoe UI';"
-            f"background:{BG_CARD};border:1px solid {BORDER};"
-            f"border-radius:8px;padding:8px;")
-        self.action_lbl.setText(f"Action: {action or 'STANDBY'}")
+        self.sim_title.configure(text=f"STATE: {state}", fg=sc)
+        self.gesture_desc.configure(text=f"Action: {action or 'STANDBY'}")
 
-        # History
         if state != self.prev_state:
-            t_str = time.strftime("%H:%M:%S")
-            self.history.appendleft((f"{self.prev_state} → {state}", t_str, sc))
+            self.history.appendleft({
+                "state": f"{self.prev_state} → {state}",
+                "ts": now,
+                "color": sc,
+                "y": -20  # Start position for drop-in animation
+            })
             self.prev_state = state
-            self._rebuild_history()
 
-    def _rebuild_history(self):
-        while self.hist_container.count():
-            item = self.hist_container.takeAt(0)
-            if item.widget(): item.widget().deleteLater()
-        for text, ts, color in self.history:
-            row = QHBoxLayout()
-            bar = QLabel(); bar.setFixedSize(3, 16)
-            bar.setStyleSheet(f"background:{color};border-radius:1px;")
-            txt = QLabel(text)
-            txt.setStyleSheet(f"color:{TEXT};font:9px 'Segoe UI';")
-            tm = QLabel(ts)
-            tm.setStyleSheet(f"color:{TEXT_MUTED};font:8px 'Segoe UI';")
-            tm.setAlignment(Qt.AlignmentFlag.AlignRight)
-            w = QWidget(); w.setLayout(row)
-            row.addWidget(bar); row.addWidget(txt); row.addStretch(); row.addWidget(tm)
-            row.setContentsMargins(6,1,6,1)
-            self.hist_container.addWidget(w)
-        self.hist_container.addStretch()
-
-    # ── Start / Stop ─────────────────────────────────────────
-    def _toggle(self):
+    def _toggle_launch(self, event=None):
         if self.running:
             self._stop_aura()
         else:
             self._start_aura()
 
     def _start_aura(self):
-        import subprocess
         from camera_process import camera_process
         from mediapipe_process import mediapipe_process
         from controller_process import controller_process
 
-        # Clean old shm
         try:
             old = shared_memory.SharedMemory(name=SHM_NAME)
             old.close(); old.unlink()
@@ -457,65 +620,59 @@ class AuraDashboard(QMainWindow):
         self.procs = [("Camera", cam), ("MediaPipe", med), ("Controller", ctrl)]
         cam.start(); time.sleep(0.3); med.start(); time.sleep(0.2); ctrl.start()
 
-        self.bridge = DataBridge(self.gui_q, self.stop_ev)
-        self.bridge.frame.connect(self._on_frame)
-        self.bridge.start()
-
         self.running = True
-        self._style_start_btn(True)
-        for n, lbl in self.dots.items():
-            lbl.setStyleSheet(f"color:{GREEN};font:9px 'Segoe UI';")
+        self.status_dot.configure(fg=GREEN)
+        self.status_label.configure(text="Running", fg=GREEN)
+        self._hover_launch(False)
+
+        # Deselect cards
+        for card, inner, dot, label in self.card_frames:
+            card.configure(highlightbackground=BORDER, highlightthickness=1)
 
     def _stop_aura(self):
         import subprocess
         if self.stop_ev: self.stop_ev.set()
-        if self.bridge: self.bridge.wait(3000)
         for name, p in self.procs:
             try: p.terminate(); p.join(2)
             except: pass
-        # Force kill any stragglers
         for name, p in self.procs:
             if p.is_alive():
-                try: subprocess.call(['taskkill','/F','/T','/PID',str(p.pid)],
-                                     creationflags=0x08000000)
+                try: subprocess.call(['taskkill','/F','/T','/PID',str(p.pid)], creationflags=0x08000000)
                 except: pass
         if self.shm:
             try: self.shm.close(); self.shm.unlink()
             except: pass
-        self.procs = []; self.running = False; self.bridge = None
-        self._style_start_btn(False)
-        self.canvas.set_data(None, "IDLE")
-        self.state_lbl.setText("IDLE")
-        for n, lbl in self.dots.items():
-            lbl.setStyleSheet(f"color:{TEXT_MUTED};font:9px 'Segoe UI';")
+            
+        self.procs = []
+        self.running = False
+        self.live_landmarks = None
+        self.gui_q = None
+        
+        self.status_dot.configure(fg=TEXT_DIM)
+        self.status_label.configure(text="Stopped", fg=ORANGE)
+        self.lbl_fps.configure(text="—")
+        self.bar_fps[0].coords(self.bar_fps[1], 0, 0, 0, 4)
+        self.lbl_lat.configure(text="—")
+        self.bar_lat[0].coords(self.bar_lat[1], 0, 0, 0, 4)
+        self.lbl_conf.configure(text="—")
+        self.bar_conf[0].coords(self.bar_conf[1], 0, 0, 0, 4)
+        self._hover_launch(False)
+        self._select_gesture(self.current_gesture_idx)
 
-    def closeEvent(self, e):
-        if self.running: self._stop_aura()
-        e.accept()
+    def destroy(self):
+        self._stop_aura()
+        super().destroy()
 
 
 def main():
     import ctypes
-    # Ensure taskbar shows our custom icon by setting an explicit AppUserModelID
     if sys.platform == 'win32':
-        myappid = 'rdpurno26.aura.gesturecontrol.4'
+        myappid = 'rdpurno26.aura.gesturecontrol.5'
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
-
-    mp.set_start_method("spawn", force=True)
-    app = QApplication(sys.argv)
     
-    # Set application-wide icon
-    icon_path = os.path.join(os.path.dirname(__file__), "app_icon.ico")
-    if getattr(sys, 'frozen', False):
-        icon_path = os.path.join(sys._MEIPASS, "app_icon.ico")
-    if os.path.exists(icon_path):
-        app.setWindowIcon(QIcon(icon_path))
-
-    app.setStyle("Fusion")
-    win = AuraDashboard()
-    win.show()
-    sys.exit(app.exec())
-
+    mp.set_start_method("spawn", force=True)
+    app = AuraDashboard()
+    app.mainloop()
 
 if __name__ == "__main__":
     main()

@@ -107,7 +107,7 @@ python main.py
 
 ```bash
 pip install pyinstaller
-pyinstaller --onefile --noconsole --add-data "hand_landmarker.task;." --name "AURA" --hidden-import=PyQt6.sip entry_point.py
+pyinstaller --onefile --noconsole --icon=app_icon.ico --add-data "hand_landmarker.task;." --name "AURA" --hidden-import=PyQt6.sip entry_point.py
 ```
 
 > **📦 The `hand_landmarker.task` model is included in this repo.** No downloads needed.
@@ -184,10 +184,10 @@ Auto-restart: if any worker dies, `main.py` respawns it within 1 second.
 
 ```
 AURA/
-├── gui.py                  # PyQt6 Dashboard (main GUI entry point)
+├── aura_launcher.py        # Main Tkinter Launcher with interactive UI
+├── gui.py                  # Legacy PyQt6 Dashboard
 ├── main.py                 # Headless entry point (terminal mode)
 ├── entry_point.py          # EXE entry point (handles freeze_support)
-├── aura_launcher.py        # Legacy tkinter launcher
 ├── camera_process.py       # Camera capture (SharedMemory writer)
 ├── mediapipe_process.py    # Hand landmark inference
 ├── controller_process.py   # FSM + cursor control + HUD overlay
