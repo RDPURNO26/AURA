@@ -214,18 +214,14 @@ class AuraDashboard(tk.Tk):
             self.iconbitmap(icon_path)
 
         # Window size and centering
+        w, h = 1050, 820
         sw = self.winfo_screenwidth()
         sh = self.winfo_screenheight()
-        w, h = int(sw * 0.8), int(sh * 0.8)
-        self.minsize(700, 480)
         x = (sw - w) // 2
         y = (sh - h) // 2
         self.geometry(f"{w}x{h}+{x}+{y}")
-        self.overrideredirect(False)
 
-        self.scale_factor = sw / 1920.0
-        self._resize_timer = None
-        self.bind("<Configure>", self._on_resize)
+        self.overrideredirect(False)
 
         # Fonts
         self.title_font = tkfont.Font(family="Segoe UI", size=28, weight="bold")
@@ -267,55 +263,18 @@ class AuraDashboard(tk.Tk):
         self._start_animation()
         self._poll_queue()
 
-
-    def _update_fonts(self):
-        self.title_font.configure(size=max(16, int(28 * self.scale_factor)))
-        self.subtitle_font.configure(size=max(8, int(11 * self.scale_factor)))
-        self.gesture_font.configure(size=max(8, int(10 * self.scale_factor)))
-        self.desc_font.configure(size=max(7, int(9 * self.scale_factor)))
-        self.button_font.configure(size=max(10, int(14 * self.scale_factor)))
-        self.small_font.configure(size=max(7, int(8 * self.scale_factor)))
-        self.stat_val_font.configure(size=max(10, int(14 * self.scale_factor)))
-
-    def _on_resize(self, event):
-        if event.widget == self:
-            if self._resize_timer is not None:
-                self.after_cancel(self._resize_timer)
-            self._resize_timer = self.after(100, self._handle_resize)
-
-    def _handle_resize(self):
-        w = self.winfo_width()
-        self.scale_factor = max(0.5, w / 1920.0)
-        self._update_fonts()
-        self._redraw_current_hand()
-        self._hover_launch(False)
-
-    def _redraw_current_hand(self):
-        if not hasattr(self, 'current_gesture_idx'): return
-        name = self.gesture_keys[self.current_gesture_idx]
-        gesture = GESTURES[name]
-        pts = get_hand_pose(gesture, HAND_BASE)
-        
-        self.hand_canvas.update_idletasks()
-        cw = self.hand_canvas.winfo_width() or 500
-        ch = self.hand_canvas.winfo_height() or 340
-        
-        draw_hand_on_canvas(self.hand_canvas, pts, gesture["color"], cw//2, ch//2, min(cw, ch)*0.8)
-
     def _build_ui(self):
-        self.grid_rowconfigure(2, weight=1)
-        self.grid_columnconfigure(0, weight=1)
-
         # ── Header ──
         header = tk.Frame(self, bg=BG_DARK, height=90)
-        header.grid(row=0, column=0, sticky="ew", padx=30, pady=(20, 0))
+        header.pack(fill="x", padx=30, pady=(20, 0))
+        header.pack_propagate(False)
 
         tk.Label(header, text="✦ AURA", font=self.title_font,
                  fg=ACCENT_LIGHT, bg=BG_DARK).pack(side="left")
         tk.Label(header, text="AI-powered User-hand Recognition & Automation",
                  font=self.subtitle_font, fg=TEXT_SECONDARY, bg=BG_DARK).pack(
                      side="left", padx=(15, 0), pady=(12, 0))
-                     
+
         if getattr(self, "lite_mode", False):
             tk.Label(header, text="⚡ Lite Mode", font=self.gesture_font, fg=BG_DARK, bg=ORANGE, padx=6, pady=2).pack(side="left", padx=(15, 0), pady=(12, 0))
 
@@ -328,19 +287,16 @@ class AuraDashboard(tk.Tk):
         self.status_label.pack(side="left", padx=(4, 0))
 
         # ── Divider ──
-        tk.Frame(self, bg=BORDER, height=1).grid(row=1, column=0, sticky="ew", padx=30, pady=(10, 15))
+        tk.Frame(self, bg=BORDER, height=1).pack(fill="x", padx=30, pady=(10, 15))
 
         # ── Main content area ──
         content = tk.Frame(self, bg=BG_DARK)
-        content.grid(row=2, column=0, sticky="nsew", padx=30)
-        content.grid_rowconfigure(0, weight=1)
-        content.grid_columnconfigure(0, weight=38)
-        content.grid_columnconfigure(1, weight=62)
+        content.pack(fill="both", expand=True, padx=30)
 
         # ── Left Panel: Gestures & Settings ──
-        left_panel = tk.Frame(content, bg=BG_DARK)
-        left_panel.grid(row=0, column=0, sticky="nsew", padx=(0, 15))
-        left_panel.grid_rowconfigure(2, weight=1)
+        left_panel = tk.Frame(content, bg=BG_DARK, width=380)
+        left_panel.pack(side="left", fill="y")
+        left_panel.pack_propagate(False)
 
         # Gesture Cards
         tk.Label(left_panel, text="GESTURE CONTROLS", font=self.gesture_font, fg=TEXT_SECONDARY, bg=BG_DARK).pack(anchor="w", pady=(0, 8))
@@ -406,7 +362,7 @@ class AuraDashboard(tk.Tk):
 
         # ── Right Panel: Canvas & Telemetry ──
         right_panel = tk.Frame(content, bg=BG_DARK)
-        right_panel.grid(row=0, column=1, sticky="nsew", padx=(15, 0))
+        right_panel.pack(side="right", fill="both", expand=True, padx=(20, 0))
 
         # Canvas Header
         self.sim_title = tk.Label(right_panel, text="Select a gesture to preview", font=self.gesture_font, fg=TEXT_SECONDARY, bg=BG_DARK)
@@ -451,12 +407,12 @@ class AuraDashboard(tk.Tk):
 
         # ── Bottom bar ──
         bottom = tk.Frame(self, bg=BG_DARK)
-        bottom.grid(row=3, column=0, sticky="ew", padx=30, pady=(15, 20))
+        bottom.pack(fill="x", padx=30, pady=(15, 20))
 
         # Launch button
         self.launch_btn = tk.Canvas(bottom, width=260, height=50, bg=BG_DARK, highlightthickness=0, cursor="hand2")
         self.launch_btn.pack(side="right")
-        self._draw_button(self.launch_btn, "▶  LAUNCH AURA", PURPLE)
+        self._draw_button(self.launch_btn, "▶  LAUNCH AURA", PURPLE, 260, 50)
         self.launch_btn.bind("<Button-1>", self._toggle_launch)
         self.launch_btn.bind("<Enter>", lambda e: self._hover_launch(True))
         self.launch_btn.bind("<Leave>", lambda e: self._hover_launch(False))
@@ -504,7 +460,7 @@ class AuraDashboard(tk.Tk):
         sv.trace_add("write", on_change)
         self.sliders[label] = sv
 
-    def _draw_button(self, canvas, text, color):
+    def _draw_button(self, canvas, text, color, _w=None, _h=None):
         canvas.update_idletasks()
         w = canvas.winfo_width() or 260
         h = canvas.winfo_height() or 50
@@ -525,7 +481,7 @@ class AuraDashboard(tk.Tk):
         if self.running:
             color = "#ff8888" if entering else RED
         text = "■  STOP AURA" if self.running else "▶  LAUNCH AURA"
-        self._draw_button(self.launch_btn, text, color)
+        self._draw_button(self.launch_btn, text, color, 260, 50)
 
     def _card_hover(self, card, inner, dot, label, entering):
         bg = BG_CARD_HOVER if entering else BG_CARD
@@ -548,10 +504,17 @@ class AuraDashboard(tk.Tk):
         self.gesture_desc.configure(text=gesture["desc"])
 
         pts = get_hand_pose(gesture, HAND_BASE)
-        self._redraw_current_hand()
+        self.hand_canvas.update_idletasks()
+        cw = self.hand_canvas.winfo_width() or 500
+        ch = self.hand_canvas.winfo_height() or 340
+        draw_hand_on_canvas(self.hand_canvas, pts, gesture["color"], cw//2, ch//2, min(cw, ch)*0.8)
 
     def _draw_idle_hand(self):
-        self.after(50, self._redraw_current_hand)
+        pts = HAND_BASE
+        self.hand_canvas.update_idletasks()
+        cw = self.hand_canvas.winfo_width() or 500
+        ch = self.hand_canvas.winfo_height() or 340
+        draw_hand_on_canvas(self.hand_canvas, pts, TEXT_DIM, cw//2, ch//2, min(cw, ch)*0.8)
 
     def _start_animation(self):
         self.anim_phase += 0.05
