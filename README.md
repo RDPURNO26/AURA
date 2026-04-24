@@ -245,7 +245,8 @@ AURA/
 
 <div align="center">
 
-**Built with 🧠 by [RDPURNO26](https://github.com/RDPURNO26)**
+**Built with 🧠 by [RD Purno](https://github.com/RDPURNO26)**  
+*Founder & Creator of AURA*
 
 *Control your computer with the wave of a hand.*
 

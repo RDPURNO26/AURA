@@ -1,6 +1,6 @@
 # AURA v1.0 — Project Report
 ### Hand Gesture Desktop Control System
-### Author: AURA Team | Date: April 2026
+### Author: RD Purno (Founder & Creator) | Date: April 2026
 
 ---
 
