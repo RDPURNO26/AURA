@@ -35,7 +35,7 @@ def _configure_file_logging():
 
 
 def mediapipe_process(frame_queue: mp.Queue, landmark_queue: mp.Queue,
-                      stop_event: mp.Event, shm_name: str = None):
+                      stop_event: mp.Event, shm_name: str = None, lite_mode: bool = False):
     _configure_file_logging()
     import queue
     import time
@@ -79,13 +79,22 @@ def mediapipe_process(frame_queue: mp.Queue, landmark_queue: mp.Queue,
         return
 
     base_options = mp_python.BaseOptions(model_asset_path=model_path)
+    if lite_mode:
+        _log.info("Lite mode active — using lower confidence thresholds")
+        detect_conf = 0.60
+        presence_conf = 0.50
+        tracking_conf = 0.50
+    else:
+        detect_conf = 0.72
+        presence_conf = 0.62
+        tracking_conf = 0.62
     options = HandLandmarkerOptions(
         base_options=base_options,
         running_mode=VisionTaskRunningMode.VIDEO,
         num_hands=1,
-        min_hand_detection_confidence=0.72,
-        min_hand_presence_confidence=0.62,
-        min_tracking_confidence=0.62,
+        min_hand_detection_confidence=detect_conf,
+        min_hand_presence_confidence=presence_conf,
+        min_tracking_confidence=tracking_conf,
     )
 
     landmark_buffer = np.zeros((21, 3), dtype=np.float32)
@@ -133,6 +142,11 @@ def mediapipe_process(frame_queue: mp.Queue, landmark_queue: mp.Queue,
                 output = (ts, landmark_buffer.copy(), float(confidence))
             else:
                 output = (ts, None, 0.0)
+
+            # Release large arrays immediately — critical for low-RAM PCs
+            del rgb, mp_image, result
+            if shm_array is not None:
+                del frame  # was a .copy() from shared memory
 
             if not landmark_queue.empty():
                 try:

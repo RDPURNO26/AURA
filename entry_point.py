@@ -6,6 +6,9 @@ if __name__ == '__main__':
     multiprocessing.set_start_method("spawn", force=True)
 
     if '--run-aura' in sys.argv:
+        # Forward --lite if present
+        if '--lite' in sys.argv:
+            sys.argv = [sys.argv[0], '--lite']
         import main
         main.main()
         sys.exit(0)

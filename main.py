@@ -107,18 +107,18 @@ def create_shared_memory():
     return shm
 
 
-def respawn_worker(name, frame_queue, landmark_queue, stop_event, shm_name):
+def respawn_worker(name, frame_queue, landmark_queue, stop_event, shm_name, lite_mode=False):
     if name == "Camera":
         p = mp.Process(
             target=camera_process,
-            args=(frame_queue, stop_event, shm_name),
+            args=(frame_queue, stop_event, shm_name, lite_mode),
             name="CameraProcess",
             daemon=True,
         )
     elif name == "MediaPipe":
         p = mp.Process(
             target=mediapipe_process,
-            args=(frame_queue, landmark_queue, stop_event, shm_name),
+            args=(frame_queue, landmark_queue, stop_event, shm_name, lite_mode),
             name="MediaPipeProcess",
             daemon=True,
         )
@@ -160,8 +160,13 @@ def shutdown(processes, stop_event, shm=None):
 
 def main():
     configure_logging()
+    import sys as _sys
+    lite_mode = '--lite' in _sys.argv
     screen_w, screen_h = get_screen_size()
     print_banner(screen_w, screen_h)
+    if lite_mode:
+        _log.info("⚡ Lite Mode active (low RAM detected)")
+        print("  ⚡ Lite Mode — reduced FPS & thresholds for performance")
 
     # Create shared memory for zero-copy frame transfer
     shm = create_shared_memory()
@@ -172,13 +177,13 @@ def main():
 
     cam_proc = mp.Process(
         target=camera_process,
-        args=(frame_queue, stop_event, SHM_NAME),
+        args=(frame_queue, stop_event, SHM_NAME, lite_mode),
         name="CameraProcess",
         daemon=True,
     )
     mp_proc = mp.Process(
         target=mediapipe_process,
-        args=(frame_queue, landmark_queue, stop_event, SHM_NAME),
+        args=(frame_queue, landmark_queue, stop_event, SHM_NAME, lite_mode),
         name="MediaPipeProcess",
         daemon=True,
     )
@@ -229,7 +234,7 @@ def main():
                         pass
                     try:
                         processes[i] = (name, respawn_worker(
-                            name, frame_queue, landmark_queue, stop_event, SHM_NAME))
+                            name, frame_queue, landmark_queue, stop_event, SHM_NAME, lite_mode))
                     except Exception:
                         _log.exception("Failed to respawn %s", name)
                     time.sleep(0.5 if name == "Camera" else 0.25)

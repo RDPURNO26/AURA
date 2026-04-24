@@ -11,8 +11,9 @@ import time
 import numpy as np
 
 
-def camera_process(frame_queue: mp.Queue, stop_event: mp.Event, shm_name: str = None):
-    print("[Camera] Started")
+def camera_process(frame_queue: mp.Queue, stop_event: mp.Event, shm_name: str = None, lite_mode: bool = False):
+    target_fps = 20 if lite_mode else 30
+    print(f"[Camera] Started (FPS target: {target_fps}, lite={lite_mode})")
 
     flip_buffer = None  # Pre-allocated once — reused every frame
     shm = None
@@ -33,7 +34,7 @@ def camera_process(frame_queue: mp.Queue, stop_event: mp.Event, shm_name: str = 
         c = cv2.VideoCapture(0, cv2.CAP_DSHOW)
         c.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
         c.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-        c.set(cv2.CAP_PROP_FPS, 30)
+        c.set(cv2.CAP_PROP_FPS, target_fps)
         if not c.isOpened():
             return None
         for _ in range(5):   # Warmup — CAP_DSHOW first frames are often black
